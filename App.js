@@ -1,117 +1,199 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- * @flow strict-local
- */
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-import React from 'react';
-import type {Node} from 'react';
-import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  useColorScheme,
-  View,
-} from 'react-native';
+import { StyleSheet, View, Text, Button } from 'react-native';
+import Vosk from 'react-native-vosk';
+import BackgroundService from 'react-native-background-actions';
+import Tts from 'react-native-tts';
+export default function App() {
+  const [ready, setReady] = useState(false);
+  const [recognizing, setRecognizing] = useState(false);
+  const [result, setResult] = useState();
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+  const vosk = useRef(new Vosk()).current;
 
-/* $FlowFixMe[missing-local-annot] The type annotation(s) required by Flow's
- * LTI update could not be added via codemod */
-const Section = ({children, title}): Node => {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
-};
+  const load = useCallback(async () => {
+    vosk
+      .loadModel('model-small-es')
+      // .loadModel('model-en-us')
+      .then(() => setReady(true))
+      .catch((e) => console.error(e));
+  }, [vosk]);
 
-const App: () => Node = () => {
-  const isDarkMode = useColorScheme() === 'dark';
-
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
+  const record = async () => {
+    vosk
+      .start()
+      .then(() => {
+        console.log('Starting recognition...');
+        setRecognizing(true);
+      })
+      .catch((e) => console.error(e));
   };
 
+  const recordGrammar = () => {
+    vosk
+      .start()
+      .then(() => {
+        console.log('Starting recognition with grammar...');
+        setRecognizing(true);
+      })
+      .catch((e) => console.error(e));
+  };
+
+  const recordTimeout = () => {
+    vosk
+      .start({ timeout: 5000 })
+      .then(() => {
+        console.log('Starting recognition with timeout...');
+        setRecognizing(true);
+      })
+      .catch((e) => console.error(e));
+  };
+
+  const stop = () => {
+    vosk.stop();
+    console.log('Stoping recognition...');
+    setRecognizing(false);
+  };
+
+  const unload = useCallback(() => {
+    vosk.unload();
+    setReady(false);
+    setRecognizing(false);
+  }, [vosk]);
+
+  const startBackgroundService = useCallback(async () => {
+    const sleep = (time) => new Promise((resolve) => setTimeout(() => resolve(), time));
+
+    const task = async () => {
+      await new Promise(async (resolve) => {
+          if (!recognizing) {
+            console.log(recognizing)
+            vosk.loadModel('model-small-es')
+            .then(() => {
+              setReady(true)
+              console.log('hola')
+            }).then(() => {
+              record();
+            })
+          }
+          await sleep(1000); // Mantener en espera un segundo
+      });
+    };
+
+    await BackgroundService.start(task, {
+      taskName: 'Voice Assistant',
+      taskTitle: 'Asistente de Voz activo',
+      taskDesc: 'Escuchando comandos de voz...',
+      taskIcon: {
+        name: 'ic_launcher',
+        type: 'mipmap',
+      },
+      color: '#ff00ff',
+      parameters: {
+        delay: 1000,
+      },
+      notifications: {
+        color: 'red',
+      },
+    });
+  }, [vosk])
+
+  useEffect(() => {
+    const resultEvent = vosk.onResult((res) => {
+      console.log('An onResult event has been caught: ' + res);
+      setResult(res);
+    });
+
+    const partialResultEvent = vosk.onPartialResult((res) => {
+      setResult(res);
+    });
+
+    const finalResultEvent = vosk.onFinalResult((res) => {
+      setResult(res);
+    });
+
+    const errorEvent = vosk.onError((e) => {
+      console.error(e);
+    });
+
+    const timeoutEvent = vosk.onTimeout(() => {
+      console.log('Recognizer timed out');
+      setRecognizing(false);
+    });
+
+    startBackgroundService();
+    return () => {
+      resultEvent.remove();
+      partialResultEvent.remove();
+      finalResultEvent.remove();
+      errorEvent.remove();
+      timeoutEvent.remove();
+    };
+  }, [vosk]);
+
+
+  useEffect(() => {
+    console.log(result, toString(result).toLowerCase().includes('juan confirma mis viajes'))
+    if(typeof result == 'string'){
+      if(result.toLowerCase().includes('juan confirma mis viajes')){
+        console.log('Should work!')
+        Tts.speak('Confirmando viajes!')
+      }
+    }
+  }, [result])
+
   return (
-    <SafeAreaView style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
+    <View style={styles.container}>
+      <Button
+        onPress={ready ? unload : load}
+        title={ready ? 'Unload model' : 'Load model'}
+        color="blue"
       />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        style={backgroundStyle}>
-        <Header />
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.js</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
+
+      {!recognizing && (
+        <View style={styles.recordingButtons}>
+          <Button
+            title="Record"
+            onPress={record}
+            disabled={!ready}
+            color="green"
+          />
+
+          <Button
+            title="Record with grammar"
+            onPress={recordGrammar}
+            disabled={!ready}
+            color="green"
+          />
+
+          <Button
+            title="Record with timeout"
+            onPress={recordTimeout}
+            disabled={!ready}
+            color="green"
+          />
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      )}
+
+      {recognizing && <Button onPress={stop} title="Stop" color="red" />}
+
+      <Text>Recognized word:</Text>
+      <Text>{result}</Text>
+    </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
+  container: {
+    gap: 25,
+    flex: 1,
+    display: 'flex',
+    textAlign: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-  },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
-  },
-  highlight: {
-    fontWeight: '700',
+  recordingButtons: {
+    gap: 15,
+    display: 'flex',
   },
 });
-
-export default App;
